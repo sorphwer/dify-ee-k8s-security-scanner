@@ -171,6 +171,32 @@ get_trivy_version() {
     fi
 }
 
+# Get Dify version information from Helm
+get_dify_version() {
+    local chart_version="unknown"
+    local app_version="unknown"
+    
+    if command -v helm &> /dev/null; then
+        # Try to get Dify release information from the specified namespace
+        if kubectl get namespace "$NAMESPACE" &> /dev/null; then
+            # Get Dify release info using helm list
+            local dify_release=$(helm list -n "$NAMESPACE" --output json 2>/dev/null | jq -r '.[] | select(.name == "dify") | .chart' 2>/dev/null)
+            local dify_app_version=$(helm list -n "$NAMESPACE" --output json 2>/dev/null | jq -r '.[] | select(.name == "dify") | .app_version' 2>/dev/null)
+            
+            if [[ -n "$dify_release" ]] && [[ "$dify_release" != "null" ]]; then
+                # Extract chart version from chart name (e.g., "dify-3.4.1" -> "3.4.1")
+                chart_version=$(echo "$dify_release" | sed 's/^dify-//')
+            fi
+            
+            if [[ -n "$dify_app_version" ]] && [[ "$dify_app_version" != "null" ]]; then
+                app_version="$dify_app_version"
+            fi
+        fi
+    fi
+    
+    echo "$chart_version|$app_version"
+}
+
 # Get image list
 get_container_images() {
     log_info "Getting container images in namespace '$NAMESPACE'..."
@@ -955,11 +981,18 @@ generate_html_report() {
     # Copy template to output file first
     cp "$template_file" "$output_file"
 
+    # Get Dify version information
+    local dify_versions=$(get_dify_version)
+    local dify_chart_version=$(echo "$dify_versions" | cut -d'|' -f1)
+    local dify_app_version=$(echo "$dify_versions" | cut -d'|' -f2)
+
     # Replace placeholders using sed (safer for multiline content)
     sed -i.bak \
         -e "s|{{SCAN_TIME}}|$scan_time|g" \
         -e "s|{{TRIVY_VERSION}}|$(get_trivy_version)|g" \
         -e "s|{{NAMESPACE}}|$NAMESPACE|g" \
+        -e "s|{{DIFY_CHART_VERSION}}|$dify_chart_version|g" \
+        -e "s|{{DIFY_APP_VERSION}}|$dify_app_version|g" \
         -e "s|{{CRITICAL_VULNS}}|$critical_vulns|g" \
         -e "s|{{HIGH_VULNS}}|$high_vulns|g" \
         -e "s|{{MEDIUM_VULNS}}|$medium_vulns|g" \
@@ -1086,11 +1119,18 @@ generate_xml_report() {
     # Copy template to output file first
     cp "$template_file" "$output_file"
 
+    # Get Dify version information
+    local dify_versions=$(get_dify_version)
+    local dify_chart_version=$(echo "$dify_versions" | cut -d'|' -f1)
+    local dify_app_version=$(echo "$dify_versions" | cut -d'|' -f2)
+
     # Replace simple placeholders using sed
     sed -i.bak \
         -e "s|{{SCAN_TIME}}|$scan_time|g" \
         -e "s|{{TRIVY_VERSION}}|$(get_trivy_version)|g" \
         -e "s|{{NAMESPACE}}|$NAMESPACE|g" \
+        -e "s|{{DIFY_CHART_VERSION}}|$dify_chart_version|g" \
+        -e "s|{{DIFY_APP_VERSION}}|$dify_app_version|g" \
         -e "s|{{IMAGE_COUNT}}|$image_count|g" \
         -e "s|{{TOTAL_VULNS}}|$total_vulns|g" \
         -e "s|{{CRITICAL_VULNS}}|$critical_vulns|g" \
